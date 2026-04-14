@@ -39,8 +39,8 @@ export default function App() {
         ...parsed, 
         itemType: parsed.itemType || '其他',
         itemName: parsed.itemName || 'Furbo 攝影機',
-        remarks: parsed.remarks || 'Furbo 攝影機',
-        isFreightCollect: parsed.isFreightCollect ?? true 
+        remarks: parsed.remarks || '到貨前請先電聯, 謝謝',
+        isFreightCollect: parsed.isFreightCollect ?? false 
       };
     }
     return { 
@@ -49,8 +49,8 @@ export default function App() {
       address: '台北市松山區民權東路三段178號4樓',
       itemType: '其他',
       itemName: 'Furbo 攝影機',
-      remarks: 'Furbo 攝影機',
-      isFreightCollect: true
+      remarks: '到貨前請先電聯, 謝謝',
+      isFreightCollect: false
     };
   });
 
@@ -149,7 +149,8 @@ export default function App() {
         }
       } catch (e) {}
 
-      ['focus', 'input', 'change', 'blur'].forEach(name => {
+      // 僅觸發必要的事件，減少對網頁後端驗證的干擾
+      ['input', 'change'].forEach(name => {
         el.dispatchEvent(new Event(name, { bubbles: true }));
       });
     }
@@ -384,11 +385,11 @@ export default function App() {
       basicFields.forEach(([l, v]) => { if(fillByLabel(root, l, v)) count++; });
       
       // 2. 品名專屬處理
-      console.log('📦 填寫品名:', data.itemType, 'Furbo 攝影機');
+      console.log('📦 填寫品名:', data.itemType, data.itemName);
       // 先嘗試填寫選單 (如: 其他)
       fillByLabel(root, '品名', data.itemType);
       
-      // 強力填入品名內容 (Furbo 攝影機)
+      // 強力填入品名內容
       // 尋找「品名」文字，並填入其右側的輸入框
       let itemFilled = false;
       const itemXpath = ".//*[(self::td or self::th or self::span or self::label) and (text()='品名' or contains(., '品名'))]";
@@ -401,8 +402,8 @@ export default function App() {
           // 尋找該行中合適的輸入框 (排除下拉選單本身)
           const target = inputs.find(input => input.id.toLowerCase().includes('product') || input.name.toLowerCase().includes('product') || input.type === 'text');
           if (target) {
-            forceValue(target, 'Furbo 攝影機', 'product-name', 6);
-            console.log('✅ 已填入品名內容到「品名」右側:', 'Furbo 攝影機');
+            forceValue(target, data.itemName, 'product-name', 6);
+            console.log('✅ 已填入品名內容到「品名」右側:', data.itemName);
             itemFilled = true;
             break;
           }
@@ -412,7 +413,7 @@ export default function App() {
       // 雙重保險：透過 ID 填寫
       const prodInput = root.querySelector('input[id*="ProductName" i], input[name*="ProductName" i], input[id*="txtItemName" i]');
       if (prodInput) {
-        forceValue(prodInput, 'Furbo 攝影機', 'product-name', 6);
+        forceValue(prodInput, data.itemName, 'product-name', 6);
         itemFilled = true;
       }
       if (itemFilled) count++;
@@ -448,7 +449,7 @@ export default function App() {
       const finalIds = [
         ['ReceiverName', data.recipientName], ['ReceiverTel', data.recipientPhone], ['ReceiverAddr', data.recipientAddress],
         ['SenderName', data.senderName], ['SenderTel', data.senderPhone], ['SenderAddr', data.senderAddress],
-        ['ProductName', 'Furbo 攝影機'], ['ReceiverMobile', data.recipientPhone]
+        ['ProductName', data.itemName], ['ReceiverMobile', data.recipientPhone]
       ];
       finalIds.forEach(([k, v]) => { if(fillById(root, k, v)) count++; });
 
