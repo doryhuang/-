@@ -1,0 +1,5 @@
+{
+  "name": "Takkyubin Auto-Filler (黑貓宅急便自動填單助手)",
+  "description": "協助快速填寫黑貓宅急便線上印單資料，自動帶入固定寄件人資訊，提升寄件效率。",
+  "requestFramePermissions": []
+}
