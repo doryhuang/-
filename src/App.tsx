@@ -84,27 +84,69 @@ export default function App() {
     const cleanText = text.trim().replace(/^["'「『"＂]+|["'」』"＂]+$/g, '');
     setQuickPaste(cleanText);
     
-    const newRecipient = { ...recipient };
+    let newRecipient = { name: '', phone: '', address: '' };
     // 支援多種分隔符號，並移除空行
-    const lines = cleanText.split(/[\n\r,，;；]/).filter(l => l.trim());
+    const lines = cleanText.split(/[\n\r,，;；]/).map(l => l.trim()).filter(l => l);
     
+    const unmatched: string[] = [];
+
     lines.forEach(line => {
-      const cleanLine = line.trim();
-      // 姓名解析 (支援 收件人：, 姓名：, 姓名:, 姓名 )
-      if (cleanLine.match(/(收件人|姓名)[：:\s]/)) {
-        newRecipient.name = cleanLine.replace(/.*(收件人|姓名)[：:\s]/, '').trim();
+      // 1. 優先處理有關鍵字的行
+      if (line.match(/(收件人|姓名)[：:\s]/)) {
+        newRecipient.name = line.replace(/.*(收件人|姓名)[：:\s]/, '').trim();
       }
-      // 地址解析
-      else if (cleanLine.match(/地址[：:\s]/)) {
-        newRecipient.address = cleanLine.replace(/.*地址[：:\s]/, '').trim();
+      else if (line.match(/地址[：:\s]/)) {
+        newRecipient.address = line.replace(/.*地址[：:\s]/, '').trim();
       }
-      // 手機/電話解析
-      else if (cleanLine.match(/(手機|電話)[：:\s]/)) {
-        newRecipient.phone = cleanLine.replace(/.*(手機|電話)[：:\s]/, '').trim();
+      else if (line.match(/(手機|電話)[：:\s]/)) {
+        newRecipient.phone = line.replace(/.*(手機|電話)[：:\s]/, '').trim();
+      }
+      // 2. 啟動智慧偵測 (無關鍵字的情況)
+      else {
+        // 偵測手機/電話：符合台灣手機格式或純數字且長度達 8-10 位
+        const phoneMatch = line.match(/(09\d{8}|0\d{1,2}\d{7,8}|\d{8,10})/);
+        if (phoneMatch && !newRecipient.phone) {
+          newRecipient.phone = phoneMatch[0];
+        } 
+        // 偵測地址：包含常見地址關鍵字
+        else if (line.match(/[市縣區路街段巷弄號樓]|(?:[ \d]F)/) && line.length > 5 && !newRecipient.address) {
+          newRecipient.address = line;
+        }
+        else {
+          unmatched.push(line);
+        }
       }
     });
+
+    // 3. 處理剩餘無法確定的行 (通常是姓名)
+    if (unmatched.length > 0) {
+      unmatched.forEach(line => {
+        // 如果還沒有姓名，且長度合理 (2-4字通常是姓名)
+        if (!newRecipient.name && line.length >= 2 && line.length <= 10) {
+          newRecipient.name = line;
+        }
+        // 如果還是沒地址，且剩下的行比較長，可能是地址
+        else if (!newRecipient.address && line.length > 5) {
+          newRecipient.address = line;
+        }
+      });
+    }
+
+    // 4. 特殊情況處理：如果只有三行且都沒對上關鍵字，假設順序為 [姓名, 電話, 地址]
+    if (lines.length === 3 && !newRecipient.name && !newRecipient.phone && !newRecipient.address) {
+      newRecipient = {
+        name: lines[0],
+        phone: lines[1],
+        address: lines[2]
+      };
+    }
     
-    setRecipient(newRecipient);
+    // 如果解析出任何值，更新狀態 (保留舊值以防解析失敗)
+    setRecipient(prev => ({
+      name: newRecipient.name || prev.name,
+      phone: newRecipient.phone || prev.phone,
+      address: newRecipient.address || prev.address
+    }));
   };
 
   const generateScript = () => {
@@ -385,11 +427,9 @@ export default function App() {
       basicFields.forEach(([l, v]) => { if(fillByLabel(root, l, v)) count++; });
       
       // 2. 品名專屬處理
-      console.log('📦 填寫品名:', data.itemType, data.itemName);
-      // 先嘗試填寫選單 (如: 其他)
-      fillByLabel(root, '品名', data.itemType);
+      console.log('📦 填寫品名:', data.itemName);
       
-      // 強力填入品名內容
+      // 直接嘗試強力填入品名內容
       // 尋找「品名」文字，並填入其右側的輸入框
       let itemFilled = false;
       const itemXpath = ".//*[(self::td or self::th or self::span or self::label) and (text()='品名' or contains(., '品名'))]";
@@ -399,23 +439,37 @@ export default function App() {
         const tr = node.closest('tr');
         if (tr) {
           const inputs = Array.from(tr.querySelectorAll('input:not([type="hidden"]), textarea'));
-          // 尋找該行中合適的輸入框 (排除下拉選單本身)
-          const target = inputs.find(input => input.id.toLowerCase().includes('product') || input.name.toLowerCase().includes('product') || input.type === 'text');
-          if (target) {
-            forceValue(target, data.itemName, 'product-name', 6);
-            console.log('✅ 已填入品名內容到「品名」右側:', data.itemName);
-            itemFilled = true;
-            break;
+          if (inputs.length > 0) {
+            // 優先尋找 ID/Name 包含關鍵字的，若無則選擇該行最後一個輸入框 (通常版型為：標籤 -> 下拉選單 -> 輸入框)
+            const target = inputs.find(input => 
+              input.id.toLowerCase().includes('product') || 
+              input.name.toLowerCase().includes('product') ||
+              input.id.toLowerCase().includes('item') ||
+              input.name.toLowerCase().includes('item')
+            ) || inputs[inputs.length - 1];
+
+            if (target && target.type !== 'checkbox' && target.type !== 'radio') {
+              forceValue(target, data.itemName, 'product-name', 8);
+              console.log('✅ 已填入品名內容到「品名」相關欄位:', data.itemName);
+              itemFilled = true;
+            }
           }
         }
       }
       
-      // 雙重保險：透過 ID 填寫
-      const prodInput = root.querySelector('input[id*="ProductName" i], input[name*="ProductName" i], input[id*="txtItemName" i]');
-      if (prodInput) {
-        forceValue(prodInput, data.itemName, 'product-name', 6);
-        itemFilled = true;
-      }
+      // 雙重保險：透過更多常見 ID 填寫
+      const prodSelectors = [
+        'input[id*="ProductName" i]', 'input[name*="ProductName" i]', 
+        'input[id*="txtItemName" i]', 'input[id*="ItemName" i]',
+        'input[id*="txtItem" i]', 'input[name*="item" i]'
+      ];
+      prodSelectors.forEach(sel => {
+        const el = root.querySelector(sel);
+        if (el) {
+          forceValue(el, data.itemName, 'product-name', 8);
+          itemFilled = true;
+        }
+      });
       if (itemFilled) count++;
 
       // 3. 備註專屬處理 (最下方)
@@ -572,8 +626,8 @@ export default function App() {
                     <div className="flex gap-3">
                       <div className="text-xs text-slate-700 leading-relaxed">
                         <ul className="list-disc list-inside space-y-1 opacity-90">
-                          <li>將上方「拖曳書籤」按鈕**按住並拖到**瀏覽器的書籤列。</li>
                           <li>在下方填寫收件人資料，或修改固定資訊。</li>
+                          <li>將上方「拖曳書籤」按鈕**按住並拖到**瀏覽器的書籤列。</li>
                           <li>前往黑貓契約客戶網頁，點擊書籤列上的該書籤即可自動填單。</li>
                         </ul>
                       </div>
